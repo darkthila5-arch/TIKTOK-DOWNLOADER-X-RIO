@@ -17,6 +17,7 @@
       --muted: #555b78;
       --pink: #e0194f;
       --pink-dark: #b8123f;
+      --pink-tint: #fde8ee;
       --teal: #0a8f8c;
       --error: #b3261e;
     }
@@ -30,11 +31,7 @@
       font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
       line-height: 1.5;
     }
-    main {
-      max-width: 640px;
-      margin: 0 auto;
-      padding: 72px 20px 48px;
-    }
+    main { max-width: 640px; margin: 0 auto; padding: 72px 20px 48px; }
     h1 {
       margin: 0 0 12px;
       font-size: clamp(2.2rem, 7vw, 3.4rem);
@@ -42,17 +39,10 @@
       line-height: 1.05;
       letter-spacing: -0.02em;
     }
-    .lede {
-      margin: 0 0 32px;
-      color: var(--muted);
-      font-size: 1.1rem;
-      max-width: 46ch;
-    }
-    form {
-      display: flex;
-      gap: 10px;
-    }
-    input[type="url"] {
+    .lede { margin: 0 0 32px; color: var(--muted); font-size: 1.1rem; max-width: 46ch; }
+
+    form { display: flex; gap: 10px; }
+    input[type="text"] {
       flex: 1;
       min-width: 0;
       padding: 16px 18px;
@@ -62,7 +52,7 @@
       border: 2px solid var(--line);
       border-radius: 14px;
     }
-    input[type="url"]::placeholder { color: #8b91ab; }
+    input[type="text"]::placeholder { color: #8b91ab; }
     button, .btn {
       font: inherit;
       font-weight: 600;
@@ -82,16 +72,11 @@
       outline: 3px solid var(--teal);
       outline-offset: 2px;
     }
-    .status {
-      min-height: 1.5em;
-      margin: 14px 2px 0;
-      color: var(--muted);
-    }
+    .status { min-height: 1.5em; margin: 14px 2px 0; color: var(--muted); }
     .status.error { color: var(--error); font-weight: 600; }
 
+    /* Result card */
     .result {
-      display: flex;
-      gap: 18px;
       margin-top: 20px;
       padding: 16px;
       background: var(--card);
@@ -99,14 +84,16 @@
       border-radius: 18px;
     }
     .result[hidden] { display: none; }
+    .top { display: flex; gap: 16px; }
     .thumb {
-      flex: 0 0 110px;
+      flex: 0 0 128px;
+      width: 128px;
       aspect-ratio: 9 / 16;
       object-fit: cover;
-      border-radius: 10px;
+      border-radius: 12px;
       background: var(--line);
     }
-    .meta { display: flex; flex-direction: column; min-width: 0; }
+    .meta { min-width: 0; }
     .meta h2 {
       margin: 0 0 4px;
       font-size: 1.1rem;
@@ -114,23 +101,53 @@
       line-height: 1.3;
       overflow: hidden;
       display: -webkit-box;
-      -webkit-line-clamp: 3;
+      -webkit-line-clamp: 4;
       -webkit-box-orient: vertical;
+      overflow-wrap: anywhere;
     }
-    .meta p { margin: 0; color: var(--muted); font-size: .95rem; }
-    .meta .btn { margin-top: auto; align-self: flex-start; }
-
-    .note {
-      margin-top: 56px;
+    .author { margin: 0 0 12px; color: var(--muted); font-size: .95rem; overflow-wrap: anywhere; }
+    .stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .stats li {
+      padding: 4px 10px;
+      font-size: .85rem;
       color: var(--muted);
-      font-size: .9rem;
-      max-width: 60ch;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      white-space: nowrap;
     }
+
+    fieldset { margin: 18px 0 0; padding: 0; border: 0; }
+    legend { padding: 0; margin-bottom: 8px; font-weight: 600; }
+    .qlist { display: grid; gap: 8px; }
+    .q { display: block; position: relative; cursor: pointer; }
+    .q input {
+      position: absolute;
+      opacity: 0;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      cursor: pointer;
+    }
+    .qbox {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 2px solid var(--line);
+      border-radius: 12px;
+    }
+    .qsize { color: var(--muted); font-size: .9rem; }
+    .q input:checked + .qbox { border-color: var(--pink); background: var(--pink-tint); }
+    .q input:focus-visible + .qbox { outline: 3px solid var(--teal); outline-offset: 2px; }
+    #dl { display: block; margin-top: 16px; width: 100%; }
+
+    .note { margin-top: 56px; color: var(--muted); font-size: .9rem; max-width: 60ch; }
 
     @media (max-width: 520px) {
       main { padding-top: 40px; }
       form { flex-direction: column; }
-      .meta .btn { margin-top: 14px; align-self: stretch; }
+      .thumb { flex-basis: 104px; width: 104px; }
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -139,32 +156,42 @@
         --card: #1b1e3a;
         --line: #343963;
         --muted: #a6acc9;
+        --pink-tint: #3a1830;
         --teal: #3ad6d2;
         --error: #ff8a80;
       }
-      input[type="url"]::placeholder { color: #7b82a6; }
+      input[type="text"]::placeholder { color: #7b82a6; }
     }
   </style>
 </head>
 <body>
   <main>
     <h1>Paste a TikTok link. Save the video.</h1>
-    <p class="lede">Copy the link from the Share menu in TikTok, paste it below, and download the video as an MP4.</p>
+    <p class="lede">Copy the link from the Share menu in TikTok, paste it below, and pick the quality you want.</p>
 
     <form id="form">
-      <input id="url" type="url" inputmode="url" autocomplete="off" required
+      <input id="url" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" required
              placeholder="https://www.tiktok.com/@user/video/..." aria-label="TikTok link">
       <button id="go" type="submit">Get video</button>
     </form>
     <p id="status" class="status" role="status" aria-live="polite"></p>
 
     <section id="result" class="result" hidden>
-      <img id="thumb" class="thumb" alt="" referrerpolicy="no-referrer">
-      <div class="meta">
-        <h2 id="title"></h2>
-        <p id="info"></p>
-        <a id="dl" class="btn" href="#" download>Download MP4</a>
+      <div class="top">
+        <img id="thumb" class="thumb" alt="Video preview" referrerpolicy="no-referrer">
+        <div class="meta">
+          <h2 id="title"></h2>
+          <p id="author" class="author"></p>
+          <ul id="stats" class="stats"></ul>
+        </div>
       </div>
+
+      <fieldset>
+        <legend>Quality</legend>
+        <div id="qlist" class="qlist"></div>
+      </fieldset>
+
+      <a id="dl" class="btn" href="#" download>Download</a>
     </section>
 
     <p class="note">Only download videos you made or have permission to save. Respect the creator's rights and TikTok's terms.</p>
@@ -176,17 +203,75 @@
     const go = document.getElementById('go');
     const statusEl = document.getElementById('status');
     const result = document.getElementById('result');
+    const qlist = document.getElementById('qlist');
+    const dl = document.getElementById('dl');
 
-    function fmt(seconds) {
-      if (!seconds) return '';
-      const m = Math.floor(seconds / 60);
-      const s = Math.round(seconds % 60).toString().padStart(2, '0');
-      return `${m}:${s}`;
+    const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+    let current = null;
+
+    function fmtDuration(s) {
+      if (!s) return '';
+      const m = Math.floor(s / 60);
+      return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`;
     }
-
+    function fmtSize(bytes) {
+      if (!bytes) return '';
+      return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+    }
     function setStatus(text, isError = false) {
       statusEl.textContent = text;
       statusEl.className = 'status' + (isError ? ' error' : '');
+    }
+
+    function updateDownload() {
+      const picked = qlist.querySelector('input:checked');
+      if (!picked || !current) return;
+      const f = current.formats.find(x => x.id === picked.value);
+      dl.href = `${current.download}&f=${encodeURIComponent(f.id)}`;
+      dl.textContent = f.kind === 'audio' ? 'Download MP3' : 'Download MP4';
+    }
+
+    function render(data) {
+      current = data;
+      const thumb = document.getElementById('thumb');
+      thumb.src = data.thumbnail || '';
+      thumb.hidden = !data.thumbnail;
+
+      document.getElementById('title').textContent = data.title;
+      const who = [data.author, data.handle ? '@' + data.handle : ''].filter(Boolean).join('  ');
+      document.getElementById('author').textContent = who;
+
+      const stats = [
+        data.duration ? fmtDuration(data.duration) : '',
+        data.views != null ? compact.format(data.views) + ' views' : '',
+        data.likes != null ? compact.format(data.likes) + ' likes' : '',
+        data.comments != null ? compact.format(data.comments) + ' comments' : '',
+        data.shares != null ? compact.format(data.shares) + ' shares' : '',
+        data.created ? 'Posted ' + data.created : ''
+      ].filter(Boolean);
+      const ul = document.getElementById('stats');
+      ul.replaceChildren(...stats.map(t => { const li = document.createElement('li'); li.textContent = t; return li; }));
+
+      qlist.replaceChildren(...data.formats.map((f, i) => {
+        const label = document.createElement('label');
+        label.className = 'q';
+        const radio = document.createElement('input');
+        radio.type = 'radio'; radio.name = 'quality'; radio.value = f.id; radio.checked = i === 0;
+        radio.addEventListener('change', updateDownload);
+        const box = document.createElement('span');
+        box.className = 'qbox';
+        const name = document.createElement('span');
+        name.textContent = f.label;
+        const size = document.createElement('span');
+        size.className = 'qsize';
+        size.textContent = fmtSize(f.size);
+        box.append(name, size);
+        label.append(radio, box);
+        return label;
+      }));
+
+      updateDownload();
+      result.hidden = false;
     }
 
     form.addEventListener('submit', async (e) => {
@@ -205,22 +290,15 @@
           body: JSON.stringify({ url })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Something went wrong. Try again.');
-
-        document.getElementById('thumb').src = data.thumbnail || '';
-        document.getElementById('title').textContent = data.title;
-        const bits = [data.uploader, fmt(data.duration)].filter(Boolean);
-        document.getElementById('info').textContent = bits.join(', ');
-        document.getElementById('dl').href = data.download;
-        result.hidden = false;
+        if (!res.ok) throw new Error(data.error + (data.detail ? ` (${data.detail})` : ''));
+        render(data);
         setStatus('');
       } catch (err) {
-        setStatus(err.message, true);
+        setStatus(err.message || 'Something went wrong. Try again.', true);
       } finally {
         go.disabled = false;
       }
     });
   </script>
 </body>
-        </html>
-        
+</html>
