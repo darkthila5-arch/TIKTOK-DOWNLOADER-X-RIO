@@ -1,4 +1,5 @@
 flask>=3.0
 gunicorn>=22.0
 requests>=2.32
+curl_cffi
 yt-dlp
