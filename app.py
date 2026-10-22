@@ -1,6 +1,11 @@
+import json
 import logging
 import os
 import re
+import secrets
+import shutil
+import subprocess
+import tempfile
 import threading
 import time
 from collections import defaultdict, deque
@@ -9,7 +14,21 @@ from urllib.parse import quote, urlparse
 
 import requests
 import yt_dlp
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_file
+
+try:
+    from curl_cffi import requests as cffi  # Chrome-like TLS fingerprint
+except ImportError:  # the app still starts, the "own" provider just reports it
+    cffi = None
+
+try:
+    from PIL import Image, ImageDraw, ImageFont  # draws the watermark picture
+except ImportError:
+    Image = None
+try:
+    import imageio_ffmpeg  # ships a ready-made ffmpeg binary
+except ImportError:
+    imageio_ffmpeg = None
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -22,9 +41,27 @@ RATE_WINDOW = int(os.environ.get("RATE_WINDOW", "60"))    # seconds
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "600"))       # seconds
 PROXY_URL = os.environ.get("PROXY_URL") or None           # optional, used by yt-dlp
 DEBUG_ERRORS = os.environ.get("DEBUG_ERRORS") == "1"      # show real error in the UI
-# Order matters. Render's servers are datacenter IPs, which TikTok often blocks
-# for yt-dlp, so "tikwm" goes first. Use PROVIDERS=ytdlp to disable the third party.
-PROVIDERS = [p.strip() for p in os.environ.get("PROVIDERS", "tikwm,ytdlp").split(",") if p.strip()]
+# Order matters: "own" is our own scraper, "tikwm" a third-party API, "ytdlp" yt-dlp.
+# Example: PROVIDERS=own,ytdlp to never use the third-party API.
+PROVIDERS = [p.strip() for p in os.environ.get("PROVIDERS", "own,tikwm,ytdlp").split(",") if p.strip()]
+IMPERSONATE = os.environ.get("IMPERSONATE", "chrome")
+
+# Watermark (needs Pillow + ffmpeg, both installed by requirements.txt)
+WATERMARK_ENABLED = os.environ.get("WATERMARK", "1") != "0"
+WATERMARK_TEXT = os.environ.get("WATERMARK_TEXT", "TIKTOK DOWNLOADER x RIO")
+FFMPEG_PRESET = os.environ.get("FFMPEG_PRESET", "ultrafast")  # faster = bigger file
+FFMPEG_TIMEOUT = int(os.environ.get("FFMPEG_TIMEOUT", "240"))  # seconds
+MAX_SOURCE_MB = int(os.environ.get("MAX_SOURCE_MB", "80"))
+MAX_ACTIVE_JOBS = int(os.environ.get("MAX_ACTIVE_JOBS", "5"))
+FILE_TTL = 600   # how long a finished watermarked file stays downloadable
+JOB_TTL = 900
+
+# Live download counter. Set the two Upstash variables to keep the number
+# forever; without them it is saved to a temp file that Render wipes on restart.
+UPSTASH_URL = (os.environ.get("UPSTASH_REDIS_REST_URL") or "").rstrip("/")
+UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or ""
+COUNTER_KEY = os.environ.get("COUNTER_KEY", "tt_downloads")
+COUNTER_FILE = os.environ.get("COUNTER_FILE", os.path.join(tempfile.gettempdir(), "tt_counter.json"))
 
 UA = (
     "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
@@ -264,7 +301,136 @@ def from_ytdlp(url):
     }
 
 
-PROVIDER_FUNCS = {"tikwm": from_tikwm, "ytdlp": from_ytdlp}
+# ---------------------------------------------------------------------------
+# Provider 0: our own scraper (reads the data TikTok embeds in the video page)
+# ---------------------------------------------------------------------------
+PAGE_HEADERS = {"Accept-Language": "en-US,en;q=0.9", "Referer": "https://www.tiktok.com/"}
+DATA_RE = re.compile(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', re.S)
+
+
+def cffi_proxies():
+    return {"http": PROXY_URL, "https": PROXY_URL} if PROXY_URL else None
+
+
+def parse_item(html):
+    """Pull the video object out of the JSON blob TikTok puts in the page."""
+    match = DATA_RE.search(html or "")
+    if not match:
+        raise ResolveError("own: page had no video data (TikTok probably served a block page)")
+    try:
+        data = json.loads(match.group(1))
+    except ValueError:
+        raise ResolveError("own: video data was not valid JSON")
+    detail = (data.get("__DEFAULT_SCOPE__") or {}).get("webapp.video-detail") or {}
+    code = detail.get("statusCode")
+    if code not in (None, 0):
+        raise ResolveError(f"own: TikTok status {code} {detail.get('statusMsg') or ''}".strip())
+    item = (detail.get("itemInfo") or {}).get("itemStruct")
+    if not item:
+        raise ResolveError("own: video not found in page")
+    return item
+
+
+def quality_of(bitrate_info, addr):
+    """TikTok names quality by the shorter side, e.g. 720p for 720x1280."""
+    w, h = addr.get("Width") or 0, addr.get("Height") or 0
+    short = min(w, h) if w and h else 0
+    if not short:
+        m = re.search(r"_(\d{3,4})_", bitrate_info.get("GearName") or "")
+        short = int(m.group(1)) if m else 0
+    return short
+
+
+def own_data(item, cookies):
+    video = item.get("video") or {}
+    if item.get("imagePost") and not video.get("playAddr"):
+        raise ResolveError("own: this is a photo post, not a video")
+
+    media = {
+        "headers": {"Referer": "https://www.tiktok.com/"},
+        "cookies": cookies,
+        "impersonate": True,
+        "proxy": bool(PROXY_URL),
+    }
+
+    options = []
+    for b in video.get("bitrateInfo") or []:
+        addr = b.get("PlayAddr") or {}
+        urls = addr.get("UrlList") or []
+        if not urls:
+            continue
+        codec = (b.get("CodecType") or "").lower()
+        options.append((quality_of(b, addr), "h264" in codec, b.get("Bitrate") or 0, addr, urls[0]))
+    # best quality first; within the same quality prefer h264 (plays everywhere)
+    options.sort(key=lambda o: (o[0], o[1], o[2]), reverse=True)
+
+    formats, seen = [], set()
+    for short, _, _, addr, url in options:
+        label = f"{short}p" if short else "Video"
+        if label in seen:
+            continue
+        seen.add(label)
+        formats.append({"id": f"o{len(formats)}", "label": label, "kind": "video",
+                        "size": to_int(addr.get("DataSize")), "url": url, **media})
+
+    play, dl = video.get("playAddr"), video.get("downloadAddr")
+    if not formats and (play or dl):
+        formats.append({"id": "o0", "label": video.get("definition") or "Standard", "kind": "video",
+                        "size": None, "url": play or dl, **media})
+    if dl and all(f["url"] != dl for f in formats):
+        formats.append({"id": f"o{len(formats)}", "label": "Original (download link)", "kind": "video",
+                        "size": None, "url": dl, **media})
+    if not formats:
+        raise ResolveError("own: no video links in page")
+
+    audio = (item.get("music") or {}).get("playUrl")
+    if audio:
+        formats.append({"id": "mp3", "label": "Audio only", "kind": "audio",
+                        "size": None, "url": audio, **media})
+
+    stats = item.get("stats") or {}
+    author = item.get("author") or {}
+    return {
+        "id": str(item.get("id") or "video"),
+        "title": (item.get("desc") or "TikTok video").strip(),
+        "author": author.get("nickname") or "",
+        "handle": author.get("uniqueId") or "",
+        "thumbnail": video.get("originCover") or video.get("cover") or video.get("dynamicCover"),
+        "duration": to_int(video.get("duration")),
+        "views": to_int(stats.get("playCount")),
+        "likes": to_int(stats.get("diggCount")),
+        "comments": to_int(stats.get("commentCount")),
+        "shares": to_int(stats.get("shareCount")),
+        "created": iso_date(epoch=item.get("createTime")),
+        "formats": formats,
+    }
+
+
+def from_own(url):
+    if cffi is None:
+        raise ResolveError("own: curl_cffi is not installed")
+    sess = cffi.Session(impersonate=IMPERSONATE, proxies=cffi_proxies())
+    try:
+        r = sess.get(url, headers=PAGE_HEADERS, timeout=25, allow_redirects=True)
+        if r.status_code >= 400:
+            raise ResolveError(f"own: TikTok returned HTTP {r.status_code}")
+        try:
+            item = parse_item(r.text)
+        except ResolveError:
+            # second try through the generic video page, which is sometimes less strict
+            m = re.search(r"/(?:video|photo)/(\d+)", str(r.url))
+            if not m:
+                raise
+            r = sess.get(f"https://www.tiktok.com/@i/video/{m.group(1)}",
+                         headers=PAGE_HEADERS, timeout=25)
+            item = parse_item(r.text)
+        cookies = sess.cookies.get_dict()
+    finally:
+        sess.close()
+    return own_data(item, cookies)
+
+
+PROVIDER_FUNCS = {"own": from_own, "tikwm": from_tikwm, "ytdlp": from_ytdlp}
 
 
 def resolve(url, fresh=False):
@@ -298,6 +464,21 @@ def pick_format(data, fid):
 
 
 def open_upstream(fmt):
+    if fmt.get("impersonate"):
+        if cffi is None:
+            raise ResolveError("curl_cffi is not installed")
+        upstream = cffi.get(
+            fmt["url"],
+            headers={**(fmt.get("headers") or {}), "Range": "bytes=0-"},
+            cookies=fmt.get("cookies") or None,
+            impersonate=IMPERSONATE,
+            stream=True,
+            timeout=30,
+            proxies=cffi_proxies() if fmt.get("proxy") else None,
+        )
+        upstream.raise_for_status()
+        return upstream
+
     proxies = {"http": PROXY_URL, "https": PROXY_URL} if fmt.get("proxy") and PROXY_URL else None
     upstream = requests.get(
         fmt["url"],
@@ -310,94 +491,76 @@ def open_upstream(fmt):
     return upstream
 
 
+def fmt_duration(seconds):
+    if not seconds:
+        return "-"
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def fmt_count(n):
+    return f"{n:,}" if isinstance(n, int) else "-"
+
+
+def build_details(info, url):
+    """A plain-text sheet with the video's details (UTF-8, works with any language)."""
+    tags = re.findall(r"#[^\s#]+", info["title"])
+    who = info["author"] or "-"
+    if info["handle"]:
+        who += f" (@{info['handle']})"
+    lines = [
+        "TikTok video details",
+        "====================",
+        "",
+        f"Caption : {info['title']}",
+        f"Creator : {who}",
+        f"Posted  : {info['created'] or '-'}",
+        f"Length  : {fmt_duration(info['duration'])}",
+        "",
+        f"Views    : {fmt_count(info['views'])}",
+        f"Likes    : {fmt_count(info['likes'])}",
+        f"Comments : {fmt_count(info['comments'])}",
+        f"Shares   : {fmt_count(info['shares'])}",
+        "",
+        f"Hashtags: {' '.join(tags) if tags else '-'}",
+        f"Link    : {url}",
+        "",
+        "Saved with TikTok Downloader x Rio",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 # ---------------------------------------------------------------------------
-# Routes
+# Live download counter
 # ---------------------------------------------------------------------------
-@app.get("/")
-def index():
-    return render_template("index.html")
+_count = 0
+_count_lock = threading.Lock()
+_persist_lock = threading.Lock()
 
 
-@app.get("/healthz")
-def healthz():
-    return "ok"
+def _upstash(path):
+    r = requests.get(f"{UPSTASH_URL}/{path}", headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"}, timeout=5)
+    r.raise_for_status()
+    return r.json().get("result")
 
 
-@app.post("/api/info")
-def api_info():
-    if rate_limited():
-        return error("Too many requests. Wait a minute and try again.", 429)
-
-    data = request.get_json(silent=True) or {}
-    url = extract_url(data.get("url"))
-    if not is_tiktok_url(url):
-        return error("That doesn't look like a TikTok link.", 400)
-
+def load_count():
+    global _count
+    n = 0
     try:
-        info = resolve(url)
-    except ResolveError as exc:
-        app.logger.error("resolve failed for %s: %s", url, exc)
-        return error(
-            "Couldn't get this video. It may be private or removed, or the download service is busy. Try again in a moment.",
-            422,
-            exc,
-        )
+        if UPSTASH_URL and UPSTASH_TOKEN:
+            n = to_int(_upstash(f"get/{COUNTER_KEY}")) or 0
+        elif os.path.exists(COUNTER_FILE):
+            with open(COUNTER_FILE) as fh:
+                n = to_int(json.load(fh).get("downloads")) or 0
     except Exception as exc:  # noqa: BLE001
-        app.logger.exception("unexpected error for %s", url)
-        return error("Something went wrong on our side. Try again.", 500, exc)
-
-    return jsonify({
-        **{k: v for k, v in info.items() if k != "formats"},
-        "formats": [{"id": f["id"], "label": f["label"], "kind": f["kind"], "size": f["size"]}
-                    for f in info["formats"]],
-        "download": "/download?url=" + quote(url, safe=""),
-    })
+        app.logger.warning("could not load the download counter: %s", exc)
+    with _count_lock:
+        _count = max(_count, n)
 
 
-@app.get("/download")
-def download():
-    if rate_limited():
-        return error("Too many requests. Wait a minute and try again.", 429)
-
-    url = extract_url(request.args.get("url"))
-    if not is_tiktok_url(url):
-        return error("That doesn't look like a TikTok link.", 400)
-    fid = (request.args.get("f") or "").strip()
-
-    upstream = None
+def _persist_count(value):
+    global _count
     try:
-        info = resolve(url)
-        fmt = pick_format(info, fid)
-        upstream = open_upstream(fmt)
-    except Exception as first_exc:  # noqa: BLE001 - links may have expired, retry once
-        app.logger.warning("download first try failed for %s: %s", url, first_exc)
-        try:
-            info = resolve(url, fresh=True)
-            fmt = pick_format(info, fid)
-            upstream = open_upstream(fmt)
-        except Exception as exc:  # noqa: BLE001
-            app.logger.exception("download failed for %s", url)
-            return error("Couldn't download this video. Try again in a moment.", 502, exc)
-
-    def stream():
-        try:
-            for chunk in upstream.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
-
-    is_audio = fmt["kind"] == "audio"
-    ext = "mp3" if is_audio else "mp4"
-    default_type = "audio/mpeg" if is_audio else "video/mp4"
-    filename = f"tiktok_{re.sub(r'[^A-Za-z0-9_-]', '', info['id'])}_{fmt['id']}.{ext}"
-
-    resp = Response(stream(), mimetype=upstream.headers.get("Content-Type", default_type))
-    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    if upstream.headers.get("Content-Length"):
-        resp.headers["Content-Length"] = upstream.headers["Content-Length"]
-    return resp
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=True)
+        with _persist_lock:
+            if UPSTASH_URL and UPSTASH_TOKEN:
+                n = to_int(_up
