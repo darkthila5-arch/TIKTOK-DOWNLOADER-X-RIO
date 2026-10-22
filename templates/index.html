@@ -1,1 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TikTok Downloader × Rio | Save TikTok videos and audio</title>
+  <meta name="description" content="Paste a TikTok link and save the video, the audio or a details file. Fast, free and simple.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta property="og:title" content="TikTok Downloader × Rio">
+  <meta property="og:description" content="Paste a TikTok link and save the video, the audio or a details file.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230a0a0a'/%3E%3Cpath d='M16 8v11m0 0l-4.5-4.5M16 19l4.5-4.5M9 23h14' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+  <script>document.documentElement.classList.add('js');</script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="TikTok Downloader by Rio">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="9"/>
+          <path d="M16 8v11m0 0l-4.5-4.5M16 19l4.5-4.5M9 23h14" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="wordmark">TIKTOK DOWNLOADER<span class="x">×</span>RIO</span>
+      </a>
+      <div class="live" id="live" hidden title="Updates live">
+        <span class="dot" aria-hidden="true"></span>
+        <span><span id="count">0</span> <small id="countLabel">downloads</small></span>
+      </div>
+    </div>
+  </header>
 
+  <main>
+    <div class="wrap">
+      <section class="hero intro">
+        <h1>Paste a TikTok link. Save the video.</h1>
+        <p class="lede">Copy the link from the Share menu in TikTok, paste it below, then choose video, audio or a details file.</p>
+
+        <form id="form">
+          <div class="field">
+            <input id="url" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" required
+                   placeholder="https://www.tiktok.com/@user/video/..." aria-label="TikTok link">
+            <button id="paste" class="paste" type="button">Paste</button>
+          </div>
+          <button id="go" class="primary" type="submit"><span class="spinner" aria-hidden="true"></span><span id="goLabel">Get video</span></button>
+          <div class="progress" aria-hidden="true"><i></i></div>
+        </form>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+
+        <section id="result" class="result" hidden aria-label="Download options">
+          <div class="info">
+            <img id="thumb" class="thumb" alt="Video preview" referrerpolicy="no-referrer">
+            <div class="meta">
+              <h2 id="title"></h2>
+              <p id="author" class="author"></p>
+              <ul id="stats" class="stats"></ul>
+            </div>
+          </div>
+
+          <div class="controls">
+            <div id="tabs" class="tabs" role="tablist" aria-label="Download type">
+              <span class="tab-ind" aria-hidden="true"></span>
+              <button class="tab" role="tab" type="button" data-kind="video" aria-selected="true">Video</button>
+              <button class="tab" role="tab" type="button" data-kind="audio" aria-selected="false">Audio</button>
+              <button class="tab" role="tab" type="button" data-kind="document" aria-selected="false">Document</button>
+            </div>
+            <div id="qlist" class="qlist" role="radiogroup" aria-label="Quality"></div>
+
+            <label id="wmRow" class="switch" hidden>
+              <input id="wm" type="checkbox" checked>
+              <span class="track" aria-hidden="true"></span>
+              <span class="swtext">Add the site name as a watermark<small>Takes a little longer to prepare</small></span>
+            </label>
+
+            <a id="dl" class="primary" href="#" download><span class="spinner" aria-hidden="true"></span><span id="dlLabel">Download</span></a>
+            <div id="dlBar" class="dlbar" hidden aria-hidden="true"><i></i></div>
+            <p id="dlStatus" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </section>
+      </section>
+
+      <section class="block reveal" aria-labelledby="how">
+        <h2 id="how" class="title">How it works</h2>
+        <ol class="steps">
+          <li><div><strong>Copy the link</strong><span>In TikTok, tap Share, then Copy link.</span></div></li>
+          <li><div><strong>Paste it here</strong><span>Tap Paste and then Get video.</span></div></li>
+          <li><div><strong>Choose and download</strong><span>Pick video, audio or a details document, then tap Download.</span></div></li>
+        </ol>
+      </section>
+
+      <section class="block reveal" aria-labelledby="faqh">
+        <h2 id="faqh" class="title">Questions</h2>
+        <div class="faq">
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="a1">Is it free?<span class="chev"></span></button>
+            <div class="faq-a" id="a1" role="region"><div><p>Yes. There is nothing to install and no account to create.</p></div></div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="a2">What does the watermark do?<span class="chev"></span></button>
+            <div class="faq-a" id="a2" role="region"><div><p>It stamps "TikTok Downloader × Rio" in the corner of your saved video, so people can see where it came from. Switch it off to get the file as it is. Adding it takes longer, especially for long videos.</p></div></div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="a3">What is the Document option?<span class="chev"></span></button>
+            <div class="faq-a" id="a3" role="region"><div><p>It is a text file with the video's caption, creator, hashtags, stats and link. It is handy for keeping notes or credits.</p></div></div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="a4">Where is the file saved?<span class="chev"></span></button>
+            <div class="faq-a" id="a4" role="region"><div><p>In your browser's Downloads folder. On a phone, open the Files app and look under Downloads.</p></div></div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="a5">Why can't I get my video?<span class="chev"></span></button>
+            <div class="faq-a" id="a5" role="region"><div><p>The video may be private or removed, or TikTok may be limiting requests. Wait a minute and try again, or check that the link opens in TikTok.</p></div></div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-q" type="button" aria-expanded="false" aria-controls="a6">Can I download any video?<span class="chev"></span></button>
+            <div class="faq-a" id="a6" role="region"><div><p>Only save videos you made or have permission to use. Respect the creator's rights and TikTok's terms.</p></div></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p class="copy">© <span id="year">2026</span> Rio. All rights reserved.</p>
+      <p>TikTok Downloader × Rio is an independent tool. It is not affiliated with, endorsed by or sponsored by TikTok or ByteDance. TikTok is a trademark of its owner.</p>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+  </html>
+              
