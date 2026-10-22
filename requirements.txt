@@ -2,4 +2,6 @@ flask>=3.0
 gunicorn>=22.0
 requests>=2.32
 curl_cffi
+Pillow>=10.1
+imageio-ffmpeg
 yt-dlp
